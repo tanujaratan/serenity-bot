@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Box Breathing 4-4-4-4</title>
+<style>
+  :root{
+    --bg:#0f172a;          /* slate-900 */
+    --card:#111827;        /* gray-900 */
+    --accent:#60a5fa;      /* blue-400 */
+    --text:#e5e7eb;        /* gray-200 */
+    --muted:#9ca3af;       /* gray-400 */
+    --bubble: #93c5fd;     /* blue-300 */
+    --ring: #1f2937;       /* gray-800 */
+    --ring-active:#2563eb; /* blue-600 */
+    --radius-min: 96px;    /* bubble min size (exhale) */
+    --radius-max: 200px;   /* bubble max size (inhale) */
+    --dur: 4s;             /* per phase duration */
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Helvetica,Arial,sans-serif}
+  .wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:20px;padding:12px}
+  .card{width:min(680px,92vw);background:linear-gradient(180deg,#0b1222 0%, #0b1222 60%, #0a0f1b 100%);border:1px solid #0b1222;border-radius:20px;box-shadow:0 10px 30px rgba(0,0,0,.35);padding:24px}
+  .title{margin:0 0 8px;font-weight:600;letter-spacing:.2px}
+  .subtitle{margin:0 0 18px;color:var(--muted);font-size:14px}
+
+  .stage{display:flex;align-items:center;justify-content:center;position:relative;height:420px}
+  .bubble{
+    position:relative; width:var(--radius-min); height:var(--radius-min);
+    border-radius:999px; background:radial-gradient(120px 90px at 30% 30%, #bfe0ff 0%, #a6d0ff 35%, #7fb7ff 70%, #5aa0ff 100%);
+    filter:drop-shadow(0 10px 20px rgba(0,0,0,.25));
+    transition: width var(--dur) cubic-bezier(.22,.8,.25,1),
+                height var(--dur) cubic-bezier(.22,.8,.25,1),
+                transform .6s ease-out;
+    will-change: width,height,transform;
+  }
+  .bubble.inhale{ width:var(--radius-max); height:var(--radius-max); }
+  .bubble.exhale{ width:var(--radius-min); height:var(--radius-min); }
+
+  /* subtle breathing shimmer */
+  .bubble::after{
+    content:"";
+    position:absolute; inset:-2px;
+    border-radius:inherit;
+    background:conic-gradient(from 0deg, rgba(255,255,255,.12), rgba(255,255,255,0) 20% 80%, rgba(255,255,255,.12));
+    filter:blur(12px); opacity:.35; pointer-events:none;
+  }
+
+  /* circular progress ring */
+  .ring{
+    position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
+  }
+  svg{width:320px; height:320px; transform:rotate(-90deg)}
+  .track{stroke:var(--ring); stroke-width:10; fill:none}
+  .prog{stroke:var(--ring-active); stroke-width:10; fill:none; stroke-linecap:round;
+        transition: stroke-dashoffset .1s linear}
+  .label{
+    position:absolute; text-align:center; pointer-events:none; user-select:none;
+    font-weight:600; font-size:22px; letter-spacing:.3px;
+    text-shadow:0 1px 1px rgba(0,0,0,.5);
+  }
+  .timer{color:var(--muted); font-size:13px; margin-top:6px}
+
+  .phases{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:14px}
+  .pill{font-size:12px; color:var(--muted); border:1px solid #1f2937; padding:6px 10px; border-radius:999px}
+  .pill.active{color:#dbeafe; border-color:#3b82f6; background:rgba(59,130,246,.08)}
+
+  @media (prefers-reduced-motion: reduce){
+    .bubble{transition:none}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2 class="title">Box Breathing (4 – 4 – 4 – 4)</h2>
+      <p class="subtitle">Inhale 4s · Hold 4s · Exhale 4s · Hold 4s — follow the bubble and cue.</p>
+
+      <div class="stage">
+        <div id="bubble" class="bubble exhale" aria-label="Breathing bubble"></div>
+
+        <div class="ring" aria-hidden="true">
+          <svg viewBox="0 0 120 120">
+            <!-- progress circle math: radius 54 -> circumference ≈ 339.29 -->
+            <circle class="track" cx="60" cy="60" r="54"></circle>
+            <circle id="prog" class="prog" cx="60" cy="60" r="54" stroke-dasharray="339.292" stroke-dashoffset="339.292"></circle>
+          </svg>
+          <div id="label" class="label">Inhale</div>
+        </div>
+      </div>
+
+      <div class="phases">
+        <div id="p-in" class="pill active">Inhale 4</div>
+        <div id="p-hold1" class="pill">Hold 4</div>
+        <div id="p-out" class="pill">Exhale 4</div>
+        <div id="p-hold2" class="pill">Hold 4</div>
+      </div>
+
+      <div class="timer" id="timer">Next in: 4.0s</div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const PHASES = [
+    { key: "inhale",  label: "Inhale",  class: "inhale"  },
+    { key: "hold1",   label: "Hold",    class: ""        },
+    { key: "exhale",  label: "Exhale",  class: "exhale"  },
+    { key: "hold2",   label: "Hold",    class: ""        },
+  ];
+  const PER_PHASE_MS = 4000; // 4 seconds each
+
+  const bubble = document.getElementById("bubble");
+  const label  = document.getElementById("label");
+  const prog   = document.getElementById("prog");
+  const pills  = {
+    inhale: document.getElementById("p-in"),
+    hold1:  document.getElementById("p-hold1"),
+    exhale: document.getElementById("p-out"),
+    hold2:  document.getElementById("p-hold2")
+  };
+  const timerEl = document.getElementById("timer");
+
+  const CIRC = 2 * Math.PI * 54; // r=54, matches dasharray
+  prog.style.strokeDasharray = CIRC;
+
+  let phaseIdx = 0;
+  let phaseStart = performance.now();
+
+  function setPhase(idx){
+    phaseIdx = idx % PHASES.length;
+    phaseStart = performance.now();
+
+    // update label & pills
+    const ph = PHASES[phaseIdx];
+    label.textContent = ph.label;
+
+    Object.values(pills).forEach(el => el.classList.remove("active"));
+    if (ph.key === "inhale")   pills.inhale.classList.add("active");
+    if (ph.key === "hold1")    pills.hold1.classList.add("active");
+    if (ph.key === "exhale")   pills.exhale.classList.add("active");
+    if (ph.key === "hold2")    pills.hold2.classList.add("active");
+
+    // bubble size class
+    bubble.classList.remove("inhale","exhale");
+    if (ph.class) bubble.classList.add(ph.class);
+
+    // reset ring per phase
+    prog.style.strokeDashoffset = CIRC;
+  }
+
+  function tick(now){
+    const elapsed = now - phaseStart;
+    const t = Math.min(elapsed / PER_PHASE_MS, 1); // 0..1
+    const remaining = Math.max(0, PER_PHASE_MS - elapsed);
+    timerEl.textContent = `Next in: ${(remaining/1000).toFixed(1)}s`;
+
+    // ring progress within current phase
+    const offset = CIRC * (1 - t);
+    prog.style.strokeDashoffset = offset;
+
+    if (elapsed >= PER_PHASE_MS){
+      setPhase(phaseIdx + 1);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // start loop
+  setPhase(0);
+  requestAnimationFrame(tick);
+
+  // be kind to users who prefer less motion
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  if (reduced.matches){
+    // dampen bubble travel to reduce visual motion
+    document.documentElement.style.setProperty('--radius-max', '160px');
+    document.documentElement.style.setProperty('--dur', '0.001s'); // snap between sizes
+  }
+})();
+</script>
+</body>
+</html>
