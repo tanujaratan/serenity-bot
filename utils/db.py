@@ -1,46 +1,52 @@
 # utils/db.py
+# utils/db.py
 import os, json, base64, datetime
 from firebase_admin import credentials, firestore, initialize_app
 from google.cloud.firestore_v1 import FieldFilter
+import firebase_admin
 
-# Keep Firebase initialized once
 _app = None
 
 def _init():
-    """Initialize Firebase using base64-encoded service account."""
+    """Initialize Firebase exactly once, supporting B64 or raw JSON secret."""
     global _app
     if _app is not None:
         return
-    # Reuse if already initialized elsewhere
-    import firebase_admin
     if firebase_admin._apps:
         _app = firebase_admin.get_app()
         return
 
-    # Prefer base64 service account (safer)
-    b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "").strip()
-    if not b64:
-        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_B64 missing in environment or secrets.")
+    # Prefer B64, else fall back to raw JSON
+    b64 = (os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64") or "").strip()
+    raw = (os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or "").strip()
 
-    try:
-        svc_json = base64.b64decode(b64).decode("utf-8")
-        cred_dict = json.loads(svc_json)
-    except Exception as e:
-        raise RuntimeError("Failed to decode Firebase service account. Ensure it's base64 of the full JSON file.") from e
+    cred_dict = None
+    if b64:
+        try:
+            svc_json = base64.b64decode(b64).decode("utf-8")
+            cred_dict = json.loads(svc_json)
+        except Exception as e:
+            raise RuntimeError("Failed to decode FIREBASE_SERVICE_ACCOUNT_B64. Make sure it is base64 of the full JSON.") from e
+    elif raw:
+        try:
+            cred_dict = json.loads(raw)
+        except Exception as e:
+            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. Paste the exact JSON (no extra quotes).") from e
+    else:
+        raise RuntimeError("Missing Firebase credentials. Set either FIREBASE_SERVICE_ACCOUNT_B64 or FIREBASE_SERVICE_ACCOUNT_JSON in secrets.")
 
-    # Sanity check
-    pk = cred_dict.get("private_key", "")
-    if not (pk.startswith("-----BEGIN PRIVATE KEY-----") and pk.strip().endswith("-----END PRIVATE KEY-----")):
-        raise RuntimeError("Invalid private key block in service account JSON. Recreate base64 correctly.")
+    pk = (cred_dict.get("private_key") or "").strip()
+    if not (pk.startswith("-----BEGIN PRIVATE KEY-----") and pk.endswith("-----END PRIVATE KEY-----")):
+        raise RuntimeError("Service account private_key block looks invalid. Recreate the key and try again.")
 
     cred = credentials.Certificate(cred_dict)
     _app = initialize_app(cred)
 
-
 def _client():
-    """Return Firestore client (initialize if needed)."""
     _init()
     return firestore.client()
+
+# ... (rest of your functions unchanged)
 
 
 # -----------------------------
