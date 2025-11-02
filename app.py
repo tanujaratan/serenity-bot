@@ -3,21 +3,32 @@ import os
 import streamlit as st
 
 def safe_load_dotenv():
-    """Load .env locally if python-dotenv is available; no-op on Cloud."""
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except Exception:
         pass
 
-# On Streamlit Cloud: copy secrets into env vars
 if st.secrets:
-    for key in ("FIREBASE_SERVICE_ACCOUNT_JSON", "FIREBASE_API_KEY", "GOOGLE_API_KEY"):
-        if key in st.secrets:
-            os.environ[key] = st.secrets[key]
+    # 1) Service account JSON
+    sa = st.secrets.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if sa:
+        os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"] = sa
+
+    # 2) Firebase Web API key (accept either name, export both)
+    fb_key = st.secrets.get("FIREBASE_API_KEY") or st.secrets.get("FIREBASE_WEB_API_KEY")
+    if fb_key:
+        os.environ["FIREBASE_API_KEY"] = fb_key
+        os.environ["FIREBASE_WEB_API_KEY"] = fb_key
+
+    # 3) Gemini key (optional)
+    gkey = st.secrets.get("GOOGLE_API_KEY")
+    if gkey:
+        os.environ["GOOGLE_API_KEY"] = gkey
 else:
-    # Local dev: try .env
     safe_load_dotenv()
+
+
 
 # Now normal imports
 import io, datetime, time, random
