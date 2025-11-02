@@ -1,37 +1,42 @@
-import streamlit as st
-from dotenv import load_dotenv
-import os, datetime, io
-import time
-import random
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from gtts import gTTS
-try:
-    from streamlit_mic_recorder import mic_recorder  # install via: pip install streamlit-mic-recorder==0.0.8
-except Exception:
-    mic_recorder = None
-
+# app.py (top)
 import os
 import streamlit as st
 
-# Allow secrets on Streamlit Cloud to behave like env vars
+# 1) If running on Streamlit Cloud use st.secrets (secure). Copy into env vars
 if "FIREBASE_SERVICE_ACCOUNT_JSON" in st.secrets:
     os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"] = st.secrets["FIREBASE_SERVICE_ACCOUNT_JSON"]
-if "FIREBASE_API_KEY" in st.secrets:
-    os.environ["FIREBASE_API_KEY"] = st.secrets["FIREBASE_API_KEY"]
+    if "FIREBASE_API_KEY" in st.secrets:
+        os.environ["FIREBASE_API_KEY"] = st.secrets["FIREBASE_API_KEY"]
+    if "GOOGLE_API_KEY" in st.secrets:
+        os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+else:
+    # 2) Local dev: try to load .env only if python-dotenv is installed
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()   # no-op if no .env file present
+    except Exception:
+        pass
 
-import io, os, datetime, time, random
+# Now normal imports
+import io, datetime, time, random
 import numpy as np
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import matplotlib.pyplot as plt
 from PIL import Image, ImageFilter, ImageEnhance, ImageDraw
 from gtts import gTTS
+
+# optional mic recorder
+try:
+    from streamlit_mic_recorder import mic_recorder
+except Exception:
+    mic_recorder = None
+
+# rest of imports
 from streamlit_drawable_canvas import st_canvas
 import streamlit.components.v1 as components
 
-
+# utils (your modules)
 from utils.ai import gemini_reply, reflect_mood, generate_affirmation, classify_crisis, transcribe_or_understand_audio
 from utils.auth import signup_email_password, login_email_password, anonymous_signin
 from utils.db import (
