@@ -34,6 +34,15 @@ if st.secrets:
 else:
     safe_load_dotenv()
 
+# ---- DIAGNOSTIC (temporary; remove after it shows ✅) ----
+loaded = list(getattr(st, "secrets", {}).keys())
+st.sidebar.write("🔐 Secrets present:", loaded)  # shows only the keys, not values
+st.sidebar.write("FIREBASE_API_KEY seen?", bool(os.getenv("FIREBASE_API_KEY")))
+st.sidebar.write("Service account dict present?",
+                 "FIREBASE_SERVICE_ACCOUNT" in loaded or bool(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")))
+# ----------------------------------------------------------
+
+
 
 # Now normal imports
 import io, datetime, time, random
