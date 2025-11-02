@@ -1,14 +1,19 @@
 # utils/db.py
 # utils/db.py
-import os, json, base64, datetime
-from firebase_admin import credentials, firestore, initialize_app
-from google.cloud.firestore_v1 import FieldFilter
+import os, json, datetime
 import firebase_admin
+from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1 import FieldFilter
+
+try:
+    import streamlit as st
+except Exception:
+    st = None  # allows local scripts/tests without Streamlit
 
 _app = None
 
 def _init():
-    """Initialize Firebase exactly once, supporting B64 or raw JSON secret."""
+    """Initialize Firebase exactly once."""
     global _app
     if _app is not None:
         return
@@ -16,31 +21,30 @@ def _init():
         _app = firebase_admin.get_app()
         return
 
-    # Prefer B64, else fall back to raw JSON
-    b64 = (os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64") or "").strip()
-    raw = (os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON") or "").strip()
+    cred = None
 
-    cred_dict = None
-    if b64:
+    # 1) Prefer Streamlit Secrets TOML table
+    if st is not None and hasattr(st, "secrets") and "FIREBASE_SERVICE_ACCOUNT" in st.secrets:
+        # st.secrets[...] is already a dict-like; convert to plain dict
+        info = dict(st.secrets["FIREBASE_SERVICE_ACCOUNT"])
+        cred = credentials.Certificate(info)
+
+    # 2) Fallback: JSON string in environment (for local dev)
+    elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
+        svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
         try:
-            svc_json = base64.b64decode(b64).decode("utf-8")
-            cred_dict = json.loads(svc_json)
+            info = json.loads(svc_json)
         except Exception as e:
-            raise RuntimeError("Failed to decode FIREBASE_SERVICE_ACCOUNT_B64. Make sure it is base64 of the full JSON.") from e
-    elif raw:
-        try:
-            cred_dict = json.loads(raw)
-        except Exception as e:
-            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. Paste the exact JSON (no extra quotes).") from e
+            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.") from e
+        cred = credentials.Certificate(info)
+
     else:
-        raise RuntimeError("Missing Firebase credentials. Set either FIREBASE_SERVICE_ACCOUNT_B64 or FIREBASE_SERVICE_ACCOUNT_JSON in secrets.")
+        raise RuntimeError(
+            "Missing Firebase credentials. Provide [FIREBASE_SERVICE_ACCOUNT] in Streamlit secrets, "
+            "or set FIREBASE_SERVICE_ACCOUNT_JSON in environment."
+        )
 
-    pk = (cred_dict.get("private_key") or "").strip()
-    if not (pk.startswith("-----BEGIN PRIVATE KEY-----") and pk.endswith("-----END PRIVATE KEY-----")):
-        raise RuntimeError("Service account private_key block looks invalid. Recreate the key and try again.")
-
-    cred = credentials.Certificate(cred_dict)
-    _app = initialize_app(cred)
+    _app = firebase_admin.initialize_app(cred)
 
 def _client():
     _init()
