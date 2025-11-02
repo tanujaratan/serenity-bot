@@ -3,6 +3,8 @@
 import os
 import streamlit as st
 
+st.set_page_config(page_title="Serenity Bot", page_icon="🧘", layout="centered")
+
 
 def safe_load_dotenv():
     """Safely load local .env if Streamlit secrets not available."""
