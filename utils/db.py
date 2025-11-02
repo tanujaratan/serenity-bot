@@ -1,36 +1,47 @@
-import os
-import json
-import datetime
-from dotenv import load_dotenv
-
-import firebase_admin
-from firebase_admin import credentials, firestore
+# utils/db.py
+import os, json, base64, datetime
+from firebase_admin import credentials, firestore, initialize_app
 from google.cloud.firestore_v1 import FieldFilter
 
-load_dotenv()
-
-# Global app handle so we only init Firebase once
+# Keep Firebase initialized once
 _app = None
 
 def _init():
-    """Initialize Firebase exactly once."""
+    """Initialize Firebase using base64-encoded service account."""
     global _app
     if _app is not None:
         return
-    # If already initialized elsewhere, reuse that app
+    # Reuse if already initialized elsewhere
+    import firebase_admin
     if firebase_admin._apps:
         _app = firebase_admin.get_app()
         return
 
-    svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
-    if not svc_json:
-        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON missing in env")
-    cred = credentials.Certificate(json.loads(svc_json))
-    _app = firebase_admin.initialize_app(cred)
+    # Prefer base64 service account (safer)
+    b64 = os.environ.get("FIREBASE_SERVICE_ACCOUNT_B64", "").strip()
+    if not b64:
+        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_B64 missing in environment or secrets.")
+
+    try:
+        svc_json = base64.b64decode(b64).decode("utf-8")
+        cred_dict = json.loads(svc_json)
+    except Exception as e:
+        raise RuntimeError("Failed to decode Firebase service account. Ensure it's base64 of the full JSON file.") from e
+
+    # Sanity check
+    pk = cred_dict.get("private_key", "")
+    if not (pk.startswith("-----BEGIN PRIVATE KEY-----") and pk.strip().endswith("-----END PRIVATE KEY-----")):
+        raise RuntimeError("Invalid private key block in service account JSON. Recreate base64 correctly.")
+
+    cred = credentials.Certificate(cred_dict)
+    _app = initialize_app(cred)
+
 
 def _client():
+    """Return Firestore client (initialize if needed)."""
     _init()
     return firestore.client()
+
 
 # -----------------------------
 # Public API
