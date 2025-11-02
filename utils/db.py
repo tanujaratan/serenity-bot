@@ -1,5 +1,4 @@
 # utils/db.py
-# utils/db.py
 import os, json, datetime
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -12,6 +11,7 @@ except Exception:
 
 _app = None
 
+
 def _init():
     """Initialize Firebase exactly once."""
     global _app
@@ -23,19 +23,30 @@ def _init():
 
     cred = None
 
-    # 1) Prefer Streamlit Secrets TOML table
+    # 1️⃣ Prefer Streamlit Secrets TOML table
     if st is not None and hasattr(st, "secrets") and "FIREBASE_SERVICE_ACCOUNT" in st.secrets:
-        # st.secrets[...] is already a dict-like; convert to plain dict
         info = dict(st.secrets["FIREBASE_SERVICE_ACCOUNT"])
         cred = credentials.Certificate(info)
 
-    # 2) Fallback: JSON string in environment (for local dev)
+    # 2️⃣ Fallback: JSON string in environment (for local dev / Streamlit Cloud)
     elif os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"):
-        svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        svc_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON").strip()
+
+        # Fix common TOML/triple-quote issues
+        if svc_json.startswith('"""') and svc_json.endswith('"""'):
+            svc_json = svc_json[3:-3].strip()
+
+        # Replace escaped newlines with real newlines
+        svc_json = svc_json.replace('\\n', '\n')
+
         try:
             info = json.loads(svc_json)
-        except Exception as e:
-            raise RuntimeError("FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON.") from e
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON. "
+                "Paste the exact JSON (no extra quotes)."
+            ) from e
+
         cred = credentials.Certificate(info)
 
     else:
@@ -46,17 +57,15 @@ def _init():
 
     _app = firebase_admin.initialize_app(cred)
 
+
 def _client():
     _init()
     return firestore.client()
-
-# ... (rest of your functions unchanged)
 
 
 # -----------------------------
 # Public API
 # -----------------------------
-
 def log_mood(user_id: str, mood: str, note: str, reflection: str):
     db = _client()
     return db.collection("moods").add({
@@ -64,12 +73,12 @@ def log_mood(user_id: str, mood: str, note: str, reflection: str):
         "mood": mood,
         "note": note,
         "reflection": reflection,
-        "date": datetime.date.today().isoformat(),  # YYYY-MM-DD (string)
-        "ts": firestore.SERVER_TIMESTAMP,           # Firestore Timestamp
+        "date": datetime.date.today().isoformat(),
+        "ts": firestore.SERVER_TIMESTAMP,
     })
 
+
 def list_recent_moods(user_id: str, days: int = 14):
-    """Last `days` moods for user, ordered by date (string YYYY-MM-DD)."""
     db = _client()
     since = datetime.date.today() - datetime.timedelta(days=days)
     q = (db.collection("moods")
@@ -78,8 +87,8 @@ def list_recent_moods(user_id: str, days: int = 14):
            .order_by("date"))
     return [{**d.to_dict(), "id": d.id} for d in q.stream()]
 
+
 def store_letter(user_id: str, content: str, deliver_on: str):
-    """Store a letter to be shown on/after deliver_on (YYYY-MM-DD)."""
     db = _client()
     return db.collection("letters").add({
         "user_id": user_id,
@@ -89,8 +98,8 @@ def store_letter(user_id: str, content: str, deliver_on: str):
         "ts": firestore.SERVER_TIMESTAMP,
     })
 
+
 def due_letters(user_id: str):
-    """Letters due today or earlier that are not delivered."""
     db = _client()
     today = datetime.date.today().isoformat()
     q = (db.collection("letters")
@@ -99,44 +108,30 @@ def due_letters(user_id: str):
            .where(filter=FieldFilter("deliver_on", "<=", today)))
     return [{**d.to_dict(), "id": d.id} for d in q.stream()]
 
+
 def mark_letter_delivered(doc_id: str):
     db = _client()
     db.collection("letters").document(doc_id).update({"delivered": True})
 
-# -----------------------------
-# Daily report aggregation
-# -----------------------------
 
 def _today_iso():
     return datetime.date.today().isoformat()
 
+
 def update_daily_report(user_id: str):
-    """
-    Aggregate today's moods/notes into a single daily_reports doc.
-    """
     db = _client()
     today = _today_iso()
-
-    # Pull today's moods/notes for this user
     moods_snap = (db.collection("moods")
                     .where(filter=FieldFilter("user_id", "==", user_id))
                     .where(filter=FieldFilter("date", "==", today))
                  ).stream()
     moods = [d.to_dict() for d in moods_snap]
 
-    # Include new positives so averages are correct
     mood_map = {
-        "😊 Happy": 5,
-        "🎉 Excited": 5,
-        "😌 Calm": 5,
-        "🙂 Okay": 4,
-        "😟 Anxious": 2,
-        "😢 Sad": 1,
-        "😠 Angry": 1,
-        "😴 Tired": 2,
-        "🤒 Unwell": 1,
-        "⭐ Good Deed": 5,
-        "🙏 Gratitude": 5,
+        "😊 Happy": 5, "🎉 Excited": 5, "😌 Calm": 5,
+        "🙂 Okay": 4, "😟 Anxious": 2, "😢 Sad": 1,
+        "😠 Angry": 1, "😴 Tired": 2, "🤒 Unwell": 1,
+        "⭐ Good Deed": 5, "🙏 Gratitude": 5,
     }
 
     scores = [mood_map.get(m.get("mood", ""), 3) for m in moods]
@@ -154,9 +149,7 @@ def update_daily_report(user_id: str):
     }
     db.collection("daily_reports").document(f"{user_id}_{today}").set(doc, merge=True)
 
-# -----------------------------
-# Personal memory & weekly schedule
-# -----------------------------
+
 def add_memory(user_id: str, key: str, value: str, tags=None, importance=3, expires_on=None):
     db = _client()
     doc = {
@@ -171,18 +164,18 @@ def add_memory(user_id: str, key: str, value: str, tags=None, importance=3, expi
     }
     return db.collection("memories").add(doc)
 
+
 def list_memories(user_id: str, limit=100):
     db = _client()
     q = db.collection("memories").where(filter=FieldFilter("user_id", "==", user_id))
     rows = [{**d.to_dict(), "id": d.id} for d in q.stream()]
 
-    # Sort by created_date (YYYY-MM-DD string) and then by ts for stability
     def _key(rec):
         cd = rec.get("created_date") or ""
-        ts = rec.get("ts")  # Firestore Timestamp or None
+        ts = rec.get("ts")
         return (cd, str(ts))
 
-    rows.sort(key=_key)  # ascending = oldest first
+    rows.sort(key=_key)
     return rows[:limit]
 
 
@@ -202,6 +195,7 @@ def add_schedule_item(user_id, title, days, start_time, end_time,
         "ts": firestore.SERVER_TIMESTAMP,
     }
     return db.collection("schedules").add(doc)
+
 
 def list_schedule(user_id):
     db = _client()

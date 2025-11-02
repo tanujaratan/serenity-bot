@@ -1,34 +1,38 @@
+
 # --- Safe env & secrets setup (top of app.py) ---
 import os
 import streamlit as st
 
 
 def safe_load_dotenv():
+    """Safely load local .env if Streamlit secrets not available."""
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except Exception:
         pass
 
+
+# --- Load Firebase / Gemini keys ---
 if st.secrets:
-    # 1) Service account JSON
+    # 1️⃣ Firebase Service Account JSON
     sa = st.secrets.get("FIREBASE_SERVICE_ACCOUNT_JSON")
     if sa:
         os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"] = sa
 
-    # 2) Firebase Web API key (accept either name, export both)
+    # 2️⃣ Firebase Web API Key
     fb_key = st.secrets.get("FIREBASE_API_KEY") or st.secrets.get("FIREBASE_WEB_API_KEY")
     if fb_key:
         os.environ["FIREBASE_API_KEY"] = fb_key
         os.environ["FIREBASE_WEB_API_KEY"] = fb_key
 
-    # 3) Gemini key (optional)
+    # 3️⃣ Gemini API Key (optional)
     gkey = st.secrets.get("GOOGLE_API_KEY")
     if gkey:
         os.environ["GOOGLE_API_KEY"] = gkey
+
 else:
     safe_load_dotenv()
-
 
 
 # Now normal imports

@@ -19,8 +19,7 @@ def _get_firebase_key() -> str:
         elif "FIREBASE_WEB_API_KEY" in st.secrets:
             key = st.secrets["FIREBASE_WEB_API_KEY"]
     except Exception:
-        # st.secrets might not exist locally
-        pass
+        pass  # st.secrets might not exist locally
 
     # Fallback for local .env
     if not key:
