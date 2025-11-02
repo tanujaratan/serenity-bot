@@ -1,6 +1,8 @@
 # --- Safe env & secrets setup (top of app.py) ---
 import os
 import streamlit as st
+st.write("🔍 Loaded secrets:", list(st.secrets.keys()))
+
 
 def safe_load_dotenv():
     try:
